@@ -19,7 +19,8 @@ cloudinary.config(
 st.set_page_config(page_title="B2B Shirt Admin", layout="wide")
 st.title("👔 Admin Panel: Inventory Management")
 
-tab1, tab2, tab3 = st.tabs(["📊 Live Dashboard", "➕ Create New Design", "⚙️ Manage Photos & Stock"])
+# --- ADDED TAB 4 ---
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Live Dashboard", "➕ Create New Design", "⚙️ Manage Photos & Stock", "📥 Orders & Cleanup"])
 
 # --- TAB 1: EXECUTIVE DASHBOARD ---
 with tab1:
@@ -132,9 +133,7 @@ with tab3:
                         with st.spinner("Uploading to cloud..."):
                             with conn.session as s:
                                 for i, file in enumerate(uploaded_files):
-                                    # Send the file directly to Cloudinary
                                     upload_result = cloudinary.uploader.upload(file)
-                                    # Get the permanent public link back
                                     secure_url = upload_result['secure_url']
                                     
                                     is_primary = True if i == 0 else False
@@ -151,3 +150,52 @@ with tab3:
             
     except Exception as e:
         st.error(f"Error loading management panel: {e}")
+
+# --- TAB 4: ORDERS & CLEANUP (NEW) ---
+with tab4:
+    # Section A: View Orders
+    st.subheader("📥 Incoming Retailer Orders")
+    try:
+        # Fetch orders from the newest to oldest
+        orders_df = conn.query("SELECT order_id, order_date, retailer_name, retailer_phone, total_value, order_summary FROM orders ORDER BY order_date DESC;", ttl=0)
+        
+        if orders_df.empty:
+            st.info("No orders received yet. Once a retailer checks out, it will appear here!")
+        else:
+            # Format the date to look clean
+            orders_df['order_date'] = pd.to_datetime(orders_df['order_date']).dt.strftime('%Y-%m-%d %I:%M %p')
+            # Display the dataframe
+            st.dataframe(orders_df, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Could not load orders: {e}")
+
+    st.markdown("---")
+    
+    # Section B: Delete Inventory
+    st.subheader("🗑️ Danger Zone: Delete Inventory")
+    try:
+        designs_for_deletion = conn.query("SELECT design_id, design_name FROM shirt_designs ORDER BY design_name ASC;", ttl=0)
+        
+        if not designs_for_deletion.empty:
+            del_dict = dict(zip(designs_for_deletion["design_name"], designs_for_deletion["design_id"]))
+            
+            with st.form("delete_design_form"):
+                shirt_to_delete = st.selectbox("Select Design to Permanently Delete", list(del_dict.keys()))
+                st.warning("⚠️ Warning: This will permanently delete the design, all of its stock numbers, and instantly remove it from the Storefront.")
+                
+                # Using a red-tinted button for danger actions
+                submit_delete = st.form_submit_button("Delete Permanently", type="primary")
+                
+                if submit_delete:
+                    del_id = del_dict[shirt_to_delete]
+                    with conn.session as s:
+                        # PostgreSQL ON DELETE CASCADE handles deleting the variants and images automatically
+                        s.execute(text("DELETE FROM shirt_designs WHERE design_id = :id"), {"id": int(del_id)})
+                        s.commit()
+                        
+                    st.success(f"✅ Permanently deleted '{shirt_to_delete}'.")
+                    time.sleep(1.5)
+                    st.rerun()
+    except Exception as e:
+        st.error(f"Error loading deletion panel: {e}")
