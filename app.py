@@ -50,7 +50,7 @@ with tab1:
             def highlight_zero(val):
                 color = '#ffcccc' if val == 0 else ''
                 return f'background-color: {color}'
-            st.dataframe(inventory_df.style.applymap(highlight_zero, subset=['stock_quantity']), use_container_width=True)
+            st.dataframe(inventory_df.style.map(highlight_zero, subset=['stock_quantity']), use_container_width=True)
 
     except Exception as e:
         st.error(f"Could not load dashboard data: {e}")
