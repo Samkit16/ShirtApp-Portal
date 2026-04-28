@@ -152,27 +152,98 @@ with tab3:
         st.error(f"Error loading management panel: {e}")
 
 # --- TAB 4: ORDERS & CLEANUP (NEW) ---
+# --- TAB 4: ORDERS & CLEANUP (UPGRADED) ---
 with tab4:
-    # Section A: View Orders
-    st.subheader("📥 Incoming Retailer Orders")
+    # Section A: Actionable Pending Orders
+    st.subheader("📦 Pending Orders (Needs Dispatch)")
     try:
-        # Fetch orders from the newest to oldest
-        orders_df = conn.query("SELECT order_id, order_date, retailer_name, retailer_phone, total_value, order_summary FROM orders ORDER BY order_date DESC;", ttl=0)
+        # Fetch ONLY Pending orders
+        pending_df = conn.query("SELECT * FROM orders WHERE order_status = 'Pending' ORDER BY order_date ASC;", ttl=0)
         
-        if orders_df.empty:
-            st.info("No orders received yet. Once a retailer checks out, it will appear here!")
+        if pending_df.empty:
+            st.success("🎉 All caught up! No pending orders to dispatch right now.")
         else:
-            # Format the date to look clean
-            orders_df['order_date'] = pd.to_datetime(orders_df['order_date']).dt.strftime('%Y-%m-%d %I:%M %p')
-            # Display the dataframe
-            st.dataframe(orders_df, use_container_width=True, hide_index=True)
-            
+            for index, row in pending_df.iterrows():
+                with st.container(border=True):
+                    col1, col2, col3 = st.columns([2, 3, 1])
+                    
+                    with col1:
+                        # Clean date formatting
+                        order_time = pd.to_datetime(row['order_date']).strftime('%Y-%m-%d %I:%M %p')
+                        st.write(f"**Order #{row['order_id']}**")
+                        st.write(f"👤 {row['retailer_name']}")
+                        st.write(f"📞 {row['retailer_phone']}")
+                        st.write(f"🕒 {order_time}")
+                        st.write(f"💰 ₹{row['total_value']}")
+                        
+                    with col2:
+                        st.write("**Order Details:**")
+                        # Read the JSON cart safely
+                        cart_data = json.loads(row['order_summary']) if isinstance(row['order_summary'], str) else row['order_summary']
+                        for v_id, item in cart_data.items():
+                            st.write(f"- {item['qty']}x {item['name']} ({item['color']}, Size {item['size']})")
+                            
+                    with col3:
+                        st.write("") # Formatting space
+                        st.write("")
+                        # The Action Button
+                        if st.button("🚚 Dispatch Order", key=f"btn_dispatch_{row['order_id']}", use_container_width=True, type="primary"):
+                            with conn.session as s:
+                                # 1. Deduct the stock quantities safely
+                                for v_id, item in cart_data.items():
+                                    query = text("""
+                                        UPDATE shirt_variants 
+                                        SET stock_quantity = GREATEST(stock_quantity - :qty, 0) 
+                                        WHERE variant_id = :vid
+                                    """)
+                                    s.execute(query, {"qty": item['qty'], "vid": int(v_id)})
+                                
+                                # 2. Mark order as Dispatched
+                                update_order = text("UPDATE orders SET order_status = 'Dispatched' WHERE order_id = :oid")
+                                s.execute(update_order, {"oid": row['order_id']})
+                                
+                                s.commit()
+                            
+                            st.success(f"✅ Order #{row['order_id']} Dispatched! Live stock updated.")
+                            time.sleep(1.5)
+                            st.rerun()
+
     except Exception as e:
-        st.error(f"Could not load orders: {e}")
+        st.error(f"Could not load pending orders: {e}")
 
     st.markdown("---")
     
-    # Section B: Delete Inventory
+    # Section B: View Order History
+    st.subheader("📥 Dispatched Order History")
+    try:
+        # Fetch ONLY completed orders
+        history_df = conn.query("SELECT order_id, order_date, retailer_name, retailer_phone, total_value, order_summary FROM orders WHERE order_status = 'Dispatched' ORDER BY order_date DESC;", ttl=0)
+        
+        if history_df.empty:
+            st.info("No dispatched orders yet. Dispatch a pending order to see it here!")
+        else:
+            history_df['order_date'] = pd.to_datetime(history_df['order_date']).dt.strftime('%Y-%m-%d %I:%M %p')
+            
+            # The JSON Translator
+            def format_cart(cart_data):
+                try:
+                    cart_dict = json.loads(cart_data) if isinstance(cart_data, str) else cart_data
+                    items = []
+                    for key, item in cart_dict.items():
+                        items.append(f"{item['qty']}x {item['name']} ({item['color']}, {item['size']})")
+                    return " | ".join(items)
+                except:
+                    return "Error reading cart"
+                    
+            history_df['order_summary'] = history_df['order_summary'].apply(format_cart)
+            st.dataframe(history_df, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Could not load order history: {e}")
+
+    st.markdown("---")
+    
+    # Section C: Delete Inventory
     st.subheader("🗑️ Danger Zone: Delete Inventory")
     try:
         designs_for_deletion = conn.query("SELECT design_id, design_name FROM shirt_designs ORDER BY design_name ASC;", ttl=0)
@@ -184,13 +255,11 @@ with tab4:
                 shirt_to_delete = st.selectbox("Select Design to Permanently Delete", list(del_dict.keys()))
                 st.warning("⚠️ Warning: This will permanently delete the design, all of its stock numbers, and instantly remove it from the Storefront.")
                 
-                # Using a red-tinted button for danger actions
                 submit_delete = st.form_submit_button("Delete Permanently", type="primary")
                 
                 if submit_delete:
                     del_id = del_dict[shirt_to_delete]
                     with conn.session as s:
-                        # PostgreSQL ON DELETE CASCADE handles deleting the variants and images automatically
                         s.execute(text("DELETE FROM shirt_designs WHERE design_id = :id"), {"id": int(del_id)})
                         s.commit()
                         
