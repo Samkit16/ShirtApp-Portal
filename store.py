@@ -8,11 +8,16 @@ conn = st.connection("postgresql", type="sql")
 
 st.set_page_config(page_title="B2B Wholesale Portal", layout="wide", initial_sidebar_state="expanded")
 # --- HIDE STREAMLIT BRANDING ---
+# --- THE NUCLEAR OPTION: HIDE ALL STREAMLIT BRANDING ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
+            /* Modern Streamlit specific tags */
+            [data-testid="stHeader"] {visibility: hidden !important;}
+            [data-testid="stToolbar"] {visibility: hidden !important;}
+            [data-testid="stDecoration"] {visibility: hidden !important;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
