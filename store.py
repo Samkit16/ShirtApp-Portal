@@ -2,8 +2,9 @@ import streamlit as st
 from sqlalchemy import text
 import pandas as pd
 import json
+import time
 
-# Connect to the Cloud Database
+# Connect to Database
 conn = st.connection("postgresql", type="sql")
 
 st.set_page_config(page_title="B2B Wholesale Portal", layout="wide")
@@ -33,11 +34,10 @@ total_cart_items = sum(item['qty'] for item in st.session_state.cart.values()) i
 tab_shop, tab_cart = st.tabs(["👔 Shop Catalog", f"🛒 Your Cart ({total_cart_items})"])
 
 # --- PRODUCT DIALOG (POP-UP WINDOW) ---
-# --- PRODUCT DIALOG (POP-UP WINDOW) ---
 @st.dialog("Product Details")
-def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HERE
+def show_product(design_id, design_name, price, moq):
     st.subheader(design_name)
-    st.write(f"**Price:** ₹{price} per piece | **MOQ:** {moq} pieces") # <--- ADD MOQ DISPLAY BACK
+    st.write(f"**Price:** ₹{price} per piece | **MOQ:** {moq} pieces")
     
     # Fetch and show Cloudinary images
     images_df = conn.query(f"SELECT image_url FROM shirt_images WHERE design_id = {design_id};", ttl=0)
@@ -45,7 +45,7 @@ def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HER
         cols = st.columns(len(images_df))
         for idx, row in images_df.iterrows():
             if pd.notna(row['image_url']):
-                cols[idx].image(row['image_url'], width="stretch")
+                cols[idx].image(row['image_url'], use_container_width=True)
     
     # Fetch variants
     variants_df = conn.query(f"SELECT variant_id, color, size, stock_quantity FROM shirt_variants WHERE design_id = {design_id};", ttl=0)
@@ -67,12 +67,11 @@ def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HER
             
         # --- LOGIC FOR BUYING A FULL SET ---
         if selected_size == "All Sizes (Full Set)":
-            # Find the maximum number of full sets we can make based on the lowest stock size
             min_stock = int(filtered_by_color['stock_quantity'].min())
             
             with col2:
                 if min_stock == 0:
-                    st.error("🚫 Broken Set (One or more sizes are out of stock)")
+                    st.error("🚫 Broken Set")
                 else:
                     st.success(f"📦 {min_stock} full sets available")
             
@@ -80,7 +79,6 @@ def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HER
             if min_stock > 0:
                 order_qty = st.number_input("How many full sets?", min_value=1, max_value=min_stock, step=1)
                 if st.button("Add Full Set to Cart 🛒", width="stretch"):
-                    # Loop through and add EVERY size to the cart at once
                     for _, row in filtered_by_color.iterrows():
                         v_id = row['variant_id']
                         sz = row['size']
@@ -108,7 +106,8 @@ def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HER
             st.markdown("---")
             
             if current_stock > 0:
-                order_qty = st.number_input("Quantity to Order", min_value=1, max_value=int(current_stock), step=1)
+                # Custom MOQ enforced here
+                order_qty = st.number_input("Quantity to Order", min_value=int(moq), max_value=int(current_stock), step=1)
                 
                 if st.button("Add to Cart 🛒", width="stretch"):
                     st.session_state.cart[str(v_id)] = {
@@ -141,20 +140,20 @@ with tab_shop:
         if catalog_df.empty:
             st.info("No active designs in the catalog.")
         else:
-            # On mobile, Streamlit automatically stacks columns vertically, making it touch-friendly!
             cols = st.columns(4)
             for index, row in catalog_df.iterrows():
                 col = cols[index % 4] 
                 with col:
                     with st.container(border=True):
                         if pd.notna(row['image_url']):
-                            st.image(row['image_url'], width="stretch")
+                            st.image(row['image_url'], use_container_width=True)
                         else:
                             st.write("📷 *No Image*")
                         
                         st.write(f"**{row['design_name']}**")
                         st.write(f"₹{row['price']}")
                         
+                        # Pass MOQ into the Dialog function
                         if st.button("View Options", key=f"btn_{row['design_id']}_{index}", width="stretch"):
                             show_product(row['design_id'], row['design_name'], row['price'], row['moq'])
 
@@ -171,7 +170,6 @@ with tab_cart:
         total_items = 0
         total_price = 0.0
         
-        # Display Cart Items
         for var_id, item in st.session_state.cart.items():
             with st.container(border=True):
                 st.write(f"**{item['name']}**")
@@ -185,7 +183,6 @@ with tab_cart:
         st.success(f"**Estimated Total:** ₹{total_price:,.2f}")
         
         st.markdown("### Finalize Order")
-        # The form is now safely on the main page, immune to mobile keyboard bugs!
         with st.form("checkout_form"):
             ret_name = st.text_input("Business Name")
             ret_phone = st.text_input("WhatsApp Number")
