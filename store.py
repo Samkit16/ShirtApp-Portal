@@ -44,7 +44,7 @@ def show_product(design_id, design_name, price):
         cols = st.columns(len(images_df))
         for idx, row in images_df.iterrows():
             if pd.notna(row['image_url']):
-                cols[idx].image(row['image_url'], use_container_width=True)
+                cols[idx].image(row['image_url'], width="stretch")
     
     # Fetch variants
     variants_df = conn.query(f"SELECT variant_id, color, size, stock_quantity FROM shirt_variants WHERE design_id = {design_id};", ttl=0)
@@ -78,7 +78,7 @@ def show_product(design_id, design_name, price):
             st.markdown("---")
             if min_stock > 0:
                 order_qty = st.number_input("How many full sets?", min_value=1, max_value=min_stock, step=1)
-                if st.button("Add Full Set to Cart 🛒", use_container_width=True):
+                if st.button("Add Full Set to Cart 🛒", width="stretch"):
                     # Loop through and add EVERY size to the cart at once
                     for _, row in filtered_by_color.iterrows():
                         v_id = row['variant_id']
@@ -109,7 +109,7 @@ def show_product(design_id, design_name, price):
             if current_stock > 0:
                 order_qty = st.number_input("Quantity to Order", min_value=1, max_value=int(current_stock), step=1)
                 
-                if st.button("Add to Cart 🛒", use_container_width=True):
+                if st.button("Add to Cart 🛒", width="stretch"):
                     st.session_state.cart[str(v_id)] = {
                         "name": design_name,
                         "color": selected_color,
@@ -147,14 +147,14 @@ with tab_shop:
                 with col:
                     with st.container(border=True):
                         if pd.notna(row['image_url']):
-                            st.image(row['image_url'], use_container_width=True)
+                            st.image(row['image_url'], width="stretch")
                         else:
                             st.write("📷 *No Image*")
                         
                         st.write(f"**{row['design_name']}**")
                         st.write(f"₹{row['price']}")
                         
-                        if st.button("View Options", key=f"btn_{row['design_id']}_{index}", use_container_width=True):
+                        if st.button("View Options", key=f"btn_{row['design_id']}_{index}", width="stretch"):
                             show_product(row['design_id'], row['design_name'], row['price'], row['moq'])
 
     except Exception as e:
@@ -188,7 +188,7 @@ with tab_cart:
         with st.form("checkout_form"):
             ret_name = st.text_input("Business Name")
             ret_phone = st.text_input("WhatsApp Number")
-            submit_order = st.form_submit_button("Submit Order 🚀", use_container_width=True)
+            submit_order = st.form_submit_button("Submit Order 🚀", width="stretch")
             
             if submit_order:
                 if ret_name and ret_phone:
