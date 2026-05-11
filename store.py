@@ -33,10 +33,11 @@ total_cart_items = sum(item['qty'] for item in st.session_state.cart.values()) i
 tab_shop, tab_cart = st.tabs(["👔 Shop Catalog", f"🛒 Your Cart ({total_cart_items})"])
 
 # --- PRODUCT DIALOG (POP-UP WINDOW) ---
+# --- PRODUCT DIALOG (POP-UP WINDOW) ---
 @st.dialog("Product Details")
-def show_product(design_id, design_name, price):
+def show_product(design_id, design_name, price, moq):  # <--- ADD 'moq' BACK HERE
     st.subheader(design_name)
-    st.write(f"**Price:** ₹{price} per piece") # MOQ removed
+    st.write(f"**Price:** ₹{price} per piece | **MOQ:** {moq} pieces") # <--- ADD MOQ DISPLAY BACK
     
     # Fetch and show Cloudinary images
     images_df = conn.query(f"SELECT image_url FROM shirt_images WHERE design_id = {design_id};", ttl=0)
