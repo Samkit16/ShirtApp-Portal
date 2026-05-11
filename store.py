@@ -6,9 +6,9 @@ import json
 # Connect to the Cloud Database
 conn = st.connection("postgresql", type="sql")
 
-st.set_page_config(page_title="B2B Wholesale Portal", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="B2B Wholesale Portal", layout="wide")
+
 # --- HIDE STREAMLIT BRANDING ---
-# --- THE NUCLEAR OPTION: HIDE ALL STREAMLIT BRANDING ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -21,53 +21,16 @@ hide_st_style = """
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # --- INITIALIZE SHOPPING CART ---
 if 'cart' not in st.session_state:
     st.session_state.cart = {}
 
-# --- SIDEBAR: THE FLOATING CART & CHECKOUT ---
-with st.sidebar:
-    st.title("🛒 Your Order")
-    
-    if not st.session_state.cart:
-        st.info("Your cart is empty. Click on a shirt to start adding stock.")
-    else:
-        total_items = 0
-        total_price = 0.0
-        
-        for var_id, item in st.session_state.cart.items():
-            st.write(f"**{item['name']}**")
-            st.write(f"Color: {item['color']} | Size: {item['size']}")
-            st.write(f"Qty: {item['qty']} x ₹{item['price']} = ₹{item['qty'] * item['price']}")
-            st.markdown("---")
-            total_items += item['qty']
-            total_price += (item['qty'] * item['price'])
-            
-        st.success(f"**Total Items:** {total_items}")
-        st.success(f"**Estimated Total:** ₹{total_price:,.2f}")
-        
-        st.markdown("### Checkout Details")
-        with st.form("checkout_form"):
-            ret_name = st.text_input("Business Name")
-            ret_phone = st.text_input("WhatsApp Number")
-            submit_order = st.form_submit_button("Submit Order 🚀", use_container_width=True)
-            
-            if submit_order:
-                if ret_name and ret_phone:
-                    cart_json = json.dumps(st.session_state.cart)
-                    with conn.session as s:
-                        query = text("""
-                            INSERT INTO orders (retailer_name, retailer_phone, order_summary, total_value) 
-                            VALUES (:name, :phone, :summary, :total)
-                        """)
-                        s.execute(query, {"name": ret_name, "phone": ret_phone, "summary": cart_json, "total": total_price})
-                        s.commit()
-                    
-                    st.session_state.cart = {}
-                    st.success("✅ Order sent successfully! We will contact you soon.")
-                    st.rerun()
-                else:
-                    st.error("Please provide Business Name and Phone.")
+# Calculate total items dynamically for the Tab title
+total_cart_items = sum(item['qty'] for item in st.session_state.cart.values()) if st.session_state.cart else 0
+
+# --- MOBILE-FRIENDLY TABS ---
+tab_shop, tab_cart = st.tabs(["👔 Shop Catalog", f"🛒 Your Cart ({total_cart_items})"])
 
 # --- PRODUCT DIALOG (POP-UP WINDOW) ---
 @st.dialog("Product Details")
@@ -123,42 +86,91 @@ def show_product(design_id, design_name, price, moq):
                 }
                 st.rerun()
 
-# --- MAIN CATALOG: THE GRID VIEW ---
-st.title("👔 Wholesale Catalog")
-st.write("Browse our latest designs and add stock directly to your cart.")
-st.markdown("---")
+# --- TAB 1: THE SHOP CATALOG ---
+with tab_shop:
+    st.title("👔 Wholesale Catalog")
+    st.write("Browse our latest designs and tap to view options.")
+    st.markdown("---")
 
-catalog_query = """
-    SELECT d.design_id, d.design_name, d.price, d.moq, 
-           (SELECT image_url FROM shirt_images 
-            WHERE design_id = d.design_id 
-            ORDER BY is_primary DESC, image_id ASC LIMIT 1) as image_url
-    FROM shirt_designs d
-    WHERE d.is_active = TRUE
-    ORDER BY d.design_id DESC;
-"""
-try:
-    catalog_df = conn.query(catalog_query, ttl=0)
+    catalog_query = """
+        SELECT d.design_id, d.design_name, d.price, d.moq, 
+               (SELECT image_url FROM shirt_images 
+                WHERE design_id = d.design_id 
+                ORDER BY is_primary DESC, image_id ASC LIMIT 1) as image_url
+        FROM shirt_designs d
+        WHERE d.is_active = TRUE
+        ORDER BY d.design_id DESC;
+    """
+    try:
+        catalog_df = conn.query(catalog_query, ttl=0)
+        
+        if catalog_df.empty:
+            st.info("No active designs in the catalog.")
+        else:
+            # On mobile, Streamlit automatically stacks columns vertically, making it touch-friendly!
+            cols = st.columns(4)
+            for index, row in catalog_df.iterrows():
+                col = cols[index % 4] 
+                with col:
+                    with st.container(border=True):
+                        if pd.notna(row['image_url']):
+                            st.image(row['image_url'], use_container_width=True)
+                        else:
+                            st.write("📷 *No Image*")
+                        
+                        st.write(f"**{row['design_name']}**")
+                        st.write(f"₹{row['price']}")
+                        
+                        if st.button("View Options", key=f"btn_{row['design_id']}_{index}", use_container_width=True):
+                            show_product(row['design_id'], row['design_name'], row['price'], row['moq'])
+
+    except Exception as e:
+        st.error(f"Could not load catalog: {e}")
+
+# --- TAB 2: THE MOBILE CHECKOUT ---
+with tab_cart:
+    st.title("🛒 Your Secure Checkout")
     
-    if catalog_df.empty:
-        st.info("No active designs in the catalog.")
+    if not st.session_state.cart:
+        st.info("Your cart is empty. Head back to the Shop tab to add inventory.")
     else:
-        cols = st.columns(4)
-        for index, row in catalog_df.iterrows():
-            col = cols[index % 4] 
-            with col:
-                with st.container(border=True):
-                    # Renders directly from the Cloudinary URL
-                    if pd.notna(row['image_url']):
-                        st.image(row['image_url'], use_container_width=True)
-                    else:
-                        st.write("📷 *No Image*")
+        total_items = 0
+        total_price = 0.0
+        
+        # Display Cart Items
+        for var_id, item in st.session_state.cart.items():
+            with st.container(border=True):
+                st.write(f"**{item['name']}**")
+                st.write(f"Color: {item['color']} | Size: {item['size']}")
+                st.write(f"Qty: {item['qty']} x ₹{item['price']} = **₹{item['qty'] * item['price']}**")
+            
+            total_items += item['qty']
+            total_price += (item['qty'] * item['price'])
+            
+        st.success(f"**Total Items:** {total_items}")
+        st.success(f"**Estimated Total:** ₹{total_price:,.2f}")
+        
+        st.markdown("### Finalize Order")
+        # The form is now safely on the main page, immune to mobile keyboard bugs!
+        with st.form("checkout_form"):
+            ret_name = st.text_input("Business Name")
+            ret_phone = st.text_input("WhatsApp Number")
+            submit_order = st.form_submit_button("Submit Order 🚀", use_container_width=True)
+            
+            if submit_order:
+                if ret_name and ret_phone:
+                    cart_json = json.dumps(st.session_state.cart)
+                    with conn.session as s:
+                        query = text("""
+                            INSERT INTO orders (retailer_name, retailer_phone, order_summary, total_value) 
+                            VALUES (:name, :phone, :summary, :total)
+                        """)
+                        s.execute(query, {"name": ret_name, "phone": ret_phone, "summary": cart_json, "total": total_price})
+                        s.commit()
                     
-                    st.write(f"**{row['design_name']}**")
-                    st.write(f"₹{row['price']}")
-                    
-                    if st.button("View Options", key=f"btn_{row['design_id']}_{index}", use_container_width=True):
-                        show_product(row['design_id'], row['design_name'], row['price'], row['moq'])
-
-except Exception as e:
-    st.error(f"Could not load catalog: {e}")
+                    st.session_state.cart = {}
+                    st.success("✅ Order sent successfully! We will contact you soon.")
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("⚠️ Please provide your Business Name and Phone number.")
