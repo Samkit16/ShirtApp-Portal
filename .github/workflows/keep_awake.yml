@@ -1,0 +1,10 @@
+name: Keep App Awake
+on:
+  schedule:
+    - cron: "0 */6 * * *" # Runs every 6 hours
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: curl -s https://your-app-name.streamlit.app/ > /dev/null
