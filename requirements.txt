@@ -2,4 +2,4 @@ streamlit
 SQLAlchemy
 psycopg2-binary
 pandas
-cloudinary
+requests
