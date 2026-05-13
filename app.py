@@ -3,17 +3,31 @@ from sqlalchemy import text
 import pandas as pd
 import time
 import json
-import cloudinary
-import cloudinary.uploader
+import requests
+import base64
 
-# --- CLOUDINARY SETUP ---
-# (Keep your specific cloudinary credentials here if you have them)
-cloudinary.config( 
-  cloud_name = "your_cloud_name", 
-  api_key = "your_api_key", 
-  api_secret = "your_api_secret" 
-)
-
+def upload_to_imgbb(image_file):
+    # Replace the string below with your actual API key from imgbb.com
+    api_key = "YOUR_IMGBB_API_KEY" 
+    url = "https://api.imgbb.com/1/upload"
+    
+    try:
+        # Convert the uploaded file to base64 for the API
+        image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        payload = {
+            "key": api_key,
+            "image": image_data,
+        }
+        res = requests.post(url, payload)
+        if res.status_code == 200:
+            return res.json()['data']['url']
+        else:
+            st.error(f"ImgBB Error: {res.json().get('error', {}).get('message', 'Unknown error')}")
+            return None
+    except Exception as e:
+        st.error(f"Connection Error: {e}")
+        return None
+      
 st.set_page_config(page_title="Admin Dashboard", layout="wide")
 st.title("👔 Wholesale Admin Dashboard")
 
@@ -41,8 +55,11 @@ with tab1:
         st.error(f"Error loading inventory: {e}")
 
 # --- TAB 2: CREATE A NEW DESIGN ---
+# --- TAB 2: CREATE A NEW DESIGN ---
 with tab2:
     st.subheader("Step 1: Create a New Shirt Profile")
+    st.info("Fill in the details and upload a primary image for the catalog.")
+    
     with st.form("new_design_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -51,24 +68,50 @@ with tab2:
         with col2:
             price = st.number_input("Price per piece (₹)", min_value=0.0, format="%.2f")
             moq = st.number_input("Minimum Order Quantity (MOQ)", min_value=1, value=5, step=1)
+        
+        # New Image Uploader field for the admin
+        uploaded_file = st.file_uploader("Upload Main Catalog Image", type=["jpg", "png", "jpeg"])
             
-        submit_button = st.form_submit_button("Save Design to Database")
+        submit_button = st.form_submit_button("Save Design & Image 🚀")
         
         if submit_button:
-            if name:
-                query = text("""
-                    INSERT INTO shirt_designs (design_name, category, price, moq) 
-                    VALUES (:name, :category, :price, :moq)
-                """)
-                with conn.session as s:
-                    s.execute(query, {"name": name, "category": category, "price": price, "moq": moq})
-                    s.commit()
-                st.success(f"✅ Successfully added '{name}'!")
-                time.sleep(1)
-                st.rerun()
-            else:
+            if not name:
                 st.error("Please enter a Design Name.")
-
+            elif not uploaded_file:
+                st.error("Please upload an image for the catalog.")
+            else:
+                # 1. Upload image to ImgBB
+                with st.spinner("Uploading image..."):
+                    image_url = upload_to_imgbb(uploaded_file)
+                
+                if image_url:
+                    try:
+                        with conn.session as s:
+                            # 2. Insert into shirt_designs and get the new ID
+                            query = text("""
+                                INSERT INTO shirt_designs (design_name, category, price, moq, is_active) 
+                                VALUES (:name, :category, :price, :moq, TRUE)
+                                RETURNING design_id
+                            """)
+                            result = s.execute(query, {"name": name, "category": category, "price": price, "moq": moq})
+                            new_design_id = result.fetchone()[0]
+                            
+                            # 3. Insert the URL into shirt_images linked to that ID
+                            img_query = text("""
+                                INSERT INTO shirt_images (design_id, image_url, is_primary) 
+                                VALUES (:did, :url, TRUE)
+                            """)
+                            s.execute(img_query, {"did": new_design_id, "url": image_url})
+                            s.commit()
+                            
+                        st.success(f"✅ Successfully added '{name}' with its image!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+                else:
+                    st.error("Failed to upload image. Please check your ImgBB API key.")
+                  
 # --- TAB 3: ADD STOCK TO A DESIGN ---
 with tab3:
     st.subheader("Step 2: Add Colors & Sizes to a Design")
