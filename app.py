@@ -113,10 +113,13 @@ with tab2:
                     st.error("Failed to upload image. Please check your ImgBB API key.")
                   
 # --- TAB 3: ADD STOCK TO A DESIGN ---
+# --- TAB 3: ADD STOCK TO A DESIGN ---
 with tab3:
     st.subheader("Step 2: Add Colors & Sizes to a Design")
     try:
+        # Fetch existing designs for the dropdown
         designs_df = conn.query("SELECT design_id, design_name FROM shirt_designs ORDER BY design_name ASC;", ttl=0)
+        
         if designs_df.empty:
             st.warning("Please create a Design in Step 1 first.")
         else:
@@ -124,29 +127,46 @@ with tab3:
             
             with st.form("add_stock_form", clear_on_submit=True):
                 selected_design = st.selectbox("Select Design", list(design_dict.keys()))
+                
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     color = st.text_input("Color (e.g., Navy Blue)")
                 with col2:
-                    size = st.selectbox("Size", ["S", "M", "L", "XL", "XXL"])
+                    # Added "All Sizes" option to the list
+                    size_choice = st.selectbox("Size", ["All Sizes", "S", "M", "L", "XL", "XXL"])
                 with col3:
-                    qty = st.number_input("Stock Quantity", min_value=1, step=1)
+                    qty = st.number_input("Stock Quantity (per size)", min_value=1, step=1)
                     
                 submit_stock = st.form_submit_button("Add Stock")
                 
                 if submit_stock:
                     if color:
                         d_id = design_dict[selected_design]
-                        query = text("""
-                            INSERT INTO shirt_variants (design_id, color, size, stock_quantity)
-                            VALUES (:did, :color, :size, :qty)
-                        """)
-                        with conn.session as s:
-                            s.execute(query, {"did": int(d_id), "color": color, "size": size, "qty": qty})
-                            s.commit()
-                        st.success(f"✅ Added {qty}x {size} in {color} to {selected_design}.")
-                        time.sleep(1)
-                        st.rerun()
+                        all_sizes = ["S", "M", "L", "XL", "XXL"]
+                        
+                        # Determine which sizes to insert
+                        sizes_to_add = all_sizes if size_choice == "All Sizes" else [size_choice]
+                        
+                        try:
+                            with conn.session as s:
+                                for sz in sizes_to_add:
+                                    # Insert each variant into the database
+                                    query = text("""
+                                        INSERT INTO shirt_variants (design_id, color, size, stock_quantity)
+                                        VALUES (:did, :color, :size, :qty)
+                                    """)
+                                    s.execute(query, {"did": int(d_id), "color": color, "size": sz, "qty": qty})
+                                s.commit()
+                                
+                            if size_choice == "All Sizes":
+                                st.success(f"✅ Added {qty} units for EACH size (S to XXL) in {color} to {selected_design}.")
+                            else:
+                                st.success(f"✅ Added {qty}x {size_choice} in {color} to {selected_design}.")
+                                
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Database Error: {e}")
                     else:
                         st.error("Please enter a color.")
     except Exception as e:
