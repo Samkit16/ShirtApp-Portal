@@ -7,4 +7,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Streamlit App
-        run: curl -s https://your-app-name.streamlit.app/ > /dev/null
+        run: curl -s https://parshva-apparels.streamlit.app/ > /dev/null
