@@ -39,7 +39,7 @@ def show_product(design_id, design_name, price, moq):
     st.subheader(design_name)
     st.write(f"**Price:** ₹{price} per piece | **MOQ:** {moq} pieces")
     
-    # Fetch and show Cloudinary images
+    # Fetch and show images
     images_df = conn.query(f"SELECT image_url FROM shirt_images WHERE design_id = {design_id};", ttl=0)
     if not images_df.empty:
         cols = st.columns(len(images_df))
@@ -60,23 +60,42 @@ def show_product(design_id, design_name, price, moq):
         
         col1, col2 = st.columns(2)
         with col1:
+            # S is removed implicitly because it won't be in the database, but we handle options cleanly
             available_sizes = list(filtered_by_color['size'].unique())
-            # Create the "All Sizes" option if there is more than 1 size available
-            size_options = ["All Sizes (Full Set)"] + available_sizes if len(available_sizes) > 1 else available_sizes
-            selected_size = st.selectbox("Select Size", size_options)
             
-        # --- LOGIC FOR BUYING A FULL SET ---
-        if selected_size == "All Sizes (Full Set)":
+            # Use multiselect so buyers can select more than one size
+            selected_sizes = st.multiselect("Select Size(s)", ["Full Set (All Sizes)"] + available_sizes)
+            
+        # Determine final sizes based on selection
+        if "Full Set (All Sizes)" in selected_sizes:
+            final_sizes = available_sizes
+            is_full_set = True
             min_stock = int(filtered_by_color['stock_quantity'].min())
+        else:
+            final_sizes = selected_sizes
+            is_full_set = False
             
-            with col2:
+        with col2:
+            if not final_sizes:
+                st.info("Choose size(s) to view availability.")
+            elif is_full_set:
                 if min_stock == 0:
                     st.error("🚫 Broken Set")
                 else:
                     st.success(f"📦 {min_stock} full sets available")
-            
-            st.markdown("---")
-            if min_stock > 0:
+            else:
+                # Show individual stock check for each selected size
+                for sz in final_sizes:
+                    sz_stock = filtered_by_color[filtered_by_color['size'] == sz].iloc[0]['stock_quantity']
+                    if sz_stock == 0:
+                        st.error(f"🚫 Size {sz}: Out of Stock")
+                    else:
+                        st.text(f"📦 Size {sz}: {sz_stock} available")
+        
+        st.markdown("---")
+        
+        if final_sizes:
+            if is_full_set and min_stock > 0:
                 order_qty = st.number_input("How many full sets?", min_value=1, max_value=min_stock, step=1)
                 if st.button("Add Full Set to Cart 🛒", width="stretch"):
                     for _, row in filtered_by_color.iterrows():
@@ -90,35 +109,35 @@ def show_product(design_id, design_name, price, moq):
                             "qty": int(order_qty)
                         }
                     st.rerun()
-
-        # --- LOGIC FOR BUYING A SINGLE SIZE ---
-        else:
-            specific_variant = filtered_by_color[filtered_by_color['size'] == selected_size].iloc[0]
-            v_id = specific_variant['variant_id']
-            current_stock = specific_variant['stock_quantity']
-            
-            with col2:
-                if current_stock == 0:
-                    st.error("🚫 Out of Stock")
-                else:
-                    st.success(f"📦 {current_stock} available")
-            
-            st.markdown("---")
-            
-            if current_stock > 0:
-                # Custom MOQ enforced here
-                order_qty = st.number_input("Quantity to Order", min_value=int(moq), max_value=int(current_stock), step=1)
+                    
+            elif not is_full_set:
+                # Enforce individual size ordering quantities
+                quantities = {}
+                can_order = True
                 
-                if st.button("Add to Cart 🛒", width="stretch"):
-                    st.session_state.cart[str(v_id)] = {
-                        "name": design_name,
-                        "color": selected_color,
-                        "size": selected_size,
-                        "price": float(price),
-                        "qty": int(order_qty)
-                    }
-                    st.rerun()
-
+                for sz in final_sizes:
+                    variant_row = filtered_by_color[filtered_by_color['size'] == sz].iloc[0]
+                    v_id = variant_row['variant_id']
+                    max_stock = int(variant_row['stock_quantity'])
+                    
+                    if max_stock > 0:
+                        # Allow setting different or uniform amounts per size selected
+                        quantities[str(v_id)] = st.number_input(f"Quantity for Size {sz}", min_value=int(moq), max_value=max_stock, value=int(moq), step=1, key=f"qty_{v_id}")
+                    else:
+                        can_order = False
+                
+                if can_order and quantities:
+                    if st.button("Add Selected Sizes to Cart 🛒", width="stretch"):
+                        for v_id_str, qty_to_buy in quantities.items():
+                            variant_info = filtered_by_color[filtered_by_color['variant_id'] == int(v_id_str)].iloc[0]
+                            st.session_state.cart[v_id_str] = {
+                                "name": design_name,
+                                "color": selected_color,
+                                "size": variant_info['size'],
+                                "price": float(price),
+                                "qty": int(qty_to_buy)
+                            }
+                        st.rerun()
 # --- TAB 1: THE SHOP CATALOG ---
 with tab_shop:
     st.title("👔 Wholesale Catalog")
