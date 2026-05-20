@@ -1,10 +1,20 @@
-name: Keep App Awake
+name: Keep Portal Awake
 on:
   schedule:
-    - cron: "0 */6 * * *" # Runs every 6 hours
+    - cron: "0 */3 * * *" # Runs automated health checks every 3 hours
+  workflow_dispatch:      # Grants you a manual override button in GitHub
+
 jobs:
-  ping:
+  wake_servers:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit App
-        run: curl -s https://parshva-apparels.streamlit.app/ > /dev/null
+      - name: Force Wake Storefront Portal
+        run: |
+          curl -I -X GET "https://parshva-apparels.streamlit.app/" \
+          -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+          
+      - name: Force Wake Admin Dashboard
+        run: |
+          # Replace this URL below with your actual deployed Admin App link if it is different
+          curl -I -X GET "https://parshva-inventory.streamlit.app/" \
+          -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
