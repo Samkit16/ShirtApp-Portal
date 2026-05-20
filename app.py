@@ -178,11 +178,11 @@ with tab4:
         pending_df = conn.query("SELECT * FROM orders WHERE order_status = 'Pending' ORDER BY order_date ASC;", ttl=0)
         
         if pending_df.empty:
-            st.success("🎉 All caught up! No pending orders to dispatch right now.")
+            st.success("🎉 All caught up! No pending orders right now.")
         else:
             for index, row in pending_df.iterrows():
                 with st.container(border=True):
-                    col1, col2, col3 = st.columns([2, 3, 1])
+                    col1, col2, col3 = st.columns([2, 3, 1.5])
                     with col1:
                         order_time = pd.to_datetime(row['order_date']).strftime('%Y-%m-%d %I:%M %p')
                         st.write(f"**Order #{row['order_id']}**")
@@ -199,6 +199,7 @@ with tab4:
                             
                     with col3:
                         st.write("")
+                        # Button 1: Standard Dispatch (Deducts stock levels)
                         if st.button("🚚 Dispatch", key=f"btn_disp_{row['order_id']}", type="primary", use_container_width=True):
                             with conn.session as s:
                                 for v_id, item in cart_data.items():
@@ -210,17 +211,32 @@ with tab4:
                             st.success(f"✅ Order Dispatched!")
                             time.sleep(1)
                             st.rerun()
+                        
+                        # Button 2: New Delete Feature (Removes order record entirely, stock stays untouched)
+                        if st.button("🗑️ Delete (Keep Stock)", key=f"btn_del_pend_{row['order_id']}", type="secondary", use_container_width=True):
+                            with conn.session as s:
+                                delete_query = text("DELETE FROM orders WHERE order_id = :oid")
+                                s.execute(delete_query, {"oid": row['order_id']})
+                                s.commit()
+                            st.warning(f"🗑️ Order #{row['order_id']} deleted. Inventory count was not changed.")
+                            time.sleep(1)
+                            st.rerun()
+                            
     except Exception as e:
         st.error(f"Could not load pending orders: {e}")
 
     st.markdown("---")
     
-    # Section B: View Order History
+    # Section B: View Order History with Cleanup Option
     st.subheader("📥 Dispatched Order History")
     try:
         history_df = conn.query("SELECT order_id, order_date, retailer_name, retailer_phone, total_value, order_summary FROM orders WHERE order_status = 'Dispatched' ORDER BY order_date DESC;", ttl=0)
-        if not history_df.empty:
-            history_df['order_date'] = pd.to_datetime(history_df['order_date']).dt.strftime('%Y-%m-%d %I:%M %p')
+        if history_df.empty:
+            st.info("No dispatched orders in history.")
+        else:
+            # Display history for admin preview
+            display_history = history_df.copy()
+            display_history['order_date'] = pd.to_datetime(display_history['order_date']).dt.strftime('%Y-%m-%d %I:%M %p')
             
             def format_cart(cart_data):
                 try:
@@ -230,8 +246,20 @@ with tab4:
                 except:
                     return "Error reading cart"
                     
-            history_df['order_summary'] = history_df['order_summary'].apply(format_cart)
-            st.dataframe(history_df, use_container_width=True, hide_index=True)
+            display_history['order_summary'] = display_history['order_summary'].apply(format_cart)
+            st.dataframe(display_history, use_container_width=True, hide_index=True)
+            
+            # Allow deleting historical logs quietly too
+            with st.expander("Clear Records From History Log"):
+                order_to_clear = st.selectbox("Select History Order ID to Remove", history_df['order_id'].unique())
+                if st.button("Delete History Entry Permanently", type="primary"):
+                    with conn.session as s:
+                        s.execute(text("DELETE FROM orders WHERE order_id = :oid"), {"oid": int(order_to_clear)})
+                        s.commit()
+                    st.success(f"✅ Order #{order_to_clear} cleared from history logs.")
+                    time.sleep(1)
+                    st.rerun()
+                    
     except Exception as e:
         st.error(f"Could not load order history: {e}")
 
