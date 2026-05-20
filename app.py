@@ -113,7 +113,6 @@ with tab2:
                     st.error("Failed to upload image. Please check your ImgBB API key.")
                   
 # --- TAB 3: ADD STOCK TO A DESIGN ---
-# --- TAB 3: ADD STOCK TO A DESIGN ---
 with tab3:
     st.subheader("Step 2: Add Colors & Sizes to a Design")
     try:
@@ -132,25 +131,31 @@ with tab3:
                 with col1:
                     color = st.text_input("Color (e.g., Navy Blue)")
                 with col2:
-                    # Added "All Sizes" option to the list
-                    size_choice = st.selectbox("Size", ["All Sizes", "S", "M", "L", "XL", "XXL"])
+                    # Changed to multiselect and removed 'S'
+                    size_choices = st.multiselect("Select Size(s)", ["All Sizes", "M", "L", "XL", "XXL"])
                 with col3:
-                    qty = st.number_input("Stock Quantity (per size)", min_value=1, step=1)
+                    qty = st.number_input("Stock Quantity (per selected size)", min_value=1, step=1)
                     
                 submit_stock = st.form_submit_button("Add Stock")
                 
                 if submit_stock:
-                    if color:
+                    if not color:
+                        st.error("Please enter a color.")
+                    elif not size_choices:
+                        st.error("Please select at least one size.")
+                    else:
                         d_id = design_dict[selected_design]
-                        all_sizes = ["S", "M", "L", "XL", "XXL"]
+                        available_sizes = ["M", "L", "XL", "XXL"]
                         
-                        # Determine which sizes to insert
-                        sizes_to_add = all_sizes if size_choice == "All Sizes" else [size_choice]
+                        # If "All Sizes" is picked anywhere in the multiselect, use all 4 sizes
+                        if "All Sizes" in size_choices:
+                            sizes_to_add = available_sizes
+                        else:
+                            sizes_to_add = size_choices
                         
                         try:
                             with conn.session as s:
                                 for sz in sizes_to_add:
-                                    # Insert each variant into the database
                                     query = text("""
                                         INSERT INTO shirt_variants (design_id, color, size, stock_quantity)
                                         VALUES (:did, :color, :size, :qty)
@@ -158,20 +163,13 @@ with tab3:
                                     s.execute(query, {"did": int(d_id), "color": color, "size": sz, "qty": qty})
                                 s.commit()
                                 
-                            if size_choice == "All Sizes":
-                                st.success(f"✅ Added {qty} units for EACH size (S to XXL) in {color} to {selected_design}.")
-                            else:
-                                st.success(f"✅ Added {qty}x {size_choice} in {color} to {selected_design}.")
-                                
+                            st.success(f"✅ Successfully added {qty} units for size(s) {', '.join(sizes_to_add)} in {color} to {selected_design}.")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
                             st.error(f"Database Error: {e}")
-                    else:
-                        st.error("Please enter a color.")
     except Exception as e:
         st.error(f"Error loading designs: {e}")
-
 # --- TAB 4: ORDERS & CLEANUP ---
 with tab4:
     # Section A: Actionable Pending Orders
