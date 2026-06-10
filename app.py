@@ -5,12 +5,14 @@ import time
 import json
 import requests
 import base64
+import os  # <--- Add this at the very top of your file
 
 def upload_to_imgbb(image_file):
-    # Replace the string below with your actual API key from imgbb.com
-    api_key = "ec667a2de584a4696d4e2a1f1a85ce2f" 
+    # This securely pulls the key from the Hugging Face vault!
+    api_key = os.environ.get("IMGBB_API_KEY") 
     url = "https://api.imgbb.com/1/upload"
     
+    # ... keep the rest of the function the same ...
     try:
         # Convert the uploaded file to base64 for the API
         image_data = base64.b64encode(image_file.read()).decode('utf-8')
