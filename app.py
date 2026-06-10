@@ -55,10 +55,9 @@ with tab1:
         st.error(f"Error loading inventory: {e}")
 
 # --- TAB 2: CREATE A NEW DESIGN ---
-# --- TAB 2: CREATE A NEW DESIGN ---
 with tab2:
     st.subheader("Step 1: Create a New Shirt Profile")
-    st.info("Fill in the details and upload a primary image for the catalog.")
+    st.info("Fill in the details and upload images for the catalog.")
     
     with st.form("new_design_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -69,49 +68,54 @@ with tab2:
             price = st.number_input("Price per piece (₹)", min_value=0.0, format="%.2f")
             moq = st.number_input("Minimum Order Quantity (MOQ)", min_value=1, value=5, step=1)
         
-        # New Image Uploader field for the admin
-        uploaded_file = st.file_uploader("Upload Main Catalog Image", type=["jpg", "png", "jpeg"])
+        # --- THE MULTIPLE IMAGE UPLOADER ---
+        uploaded_files = st.file_uploader("Upload Catalog Images (First image will be the primary display)", 
+                                          type=["jpg", "png", "jpeg"], 
+                                          accept_multiple_files=True) # <-- This unlocks multiple uploads!
             
-        submit_button = st.form_submit_button("Save Design & Image 🚀")
+        submit_button = st.form_submit_button("Save Design & Images 🚀")
         
         if submit_button:
             if not name:
                 st.error("Please enter a Design Name.")
-            elif not uploaded_file:
-                st.error("Please upload an image for the catalog.")
+            elif not uploaded_files:
+                st.error("Please upload at least one image for the catalog.")
             else:
-                # 1. Upload image to ImgBB
-                with st.spinner("Uploading image..."):
-                    image_url = upload_to_imgbb(uploaded_file)
-                
-                if image_url:
-                    try:
-                        with conn.session as s:
-                            # 2. Insert into shirt_designs and get the new ID
-                            query = text("""
-                                INSERT INTO shirt_designs (design_name, category, price, moq, is_active) 
-                                VALUES (:name, :category, :price, :moq, TRUE)
-                                RETURNING design_id
-                            """)
-                            result = s.execute(query, {"name": name, "category": category, "price": price, "moq": moq})
-                            new_design_id = result.fetchone()[0]
-                            
-                            # 3. Insert the URL into shirt_images linked to that ID
-                            img_query = text("""
-                                INSERT INTO shirt_images (design_id, image_url, is_primary) 
-                                VALUES (:did, :url, TRUE)
-                            """)
-                            s.execute(img_query, {"did": new_design_id, "url": image_url})
-                            s.commit()
-                            
-                        st.success(f"✅ Successfully added '{name}' with its image!")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Database Error: {e}")
-                else:
-                    st.error("Failed to upload image. Please check your ImgBB API key.")
-                  
+                try:
+                    with conn.session as s:
+                        # 1. Insert into shirt_designs and get the new ID first
+                        query = text("""
+                            INSERT INTO shirt_designs (design_name, category, price, moq, is_active) 
+                            VALUES (:name, :category, :price, :moq, TRUE)
+                            RETURNING design_id
+                        """)
+                        result = s.execute(query, {"name": name, "category": category, "price": price, "moq": moq})
+                        new_design_id = result.fetchone()[0]
+                        
+                        # 2. Upload ALL images to ImgBB and save to database
+                        with st.spinner(f"Uploading {len(uploaded_files)} images..."):
+                            for index, file in enumerate(uploaded_files):
+                                image_url = upload_to_imgbb(file)
+                                
+                                if image_url:
+                                    # Make the first uploaded image the primary one
+                                    is_primary = True if index == 0 else False
+                                    
+                                    img_query = text("""
+                                        INSERT INTO shirt_images (design_id, image_url, is_primary) 
+                                        VALUES (:did, :url, :is_primary)
+                                    """)
+                                    s.execute(img_query, {"did": new_design_id, "url": image_url, "is_primary": is_primary})
+                                else:
+                                    st.error(f"Failed to upload {file.name}")
+                                    
+                        s.commit()
+                        
+                    st.success(f"✅ Successfully added '{name}' with {len(uploaded_files)} image(s)!")
+                    time.sleep(1.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Database Error: {e}")
 # --- TAB 3: ADD STOCK TO A DESIGN ---
 with tab3:
     st.subheader("Step 2: Add Colors & Sizes to a Design")
