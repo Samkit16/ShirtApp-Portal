@@ -8,7 +8,7 @@ import base64
 
 def upload_to_imgbb(image_file):
     # Replace the string below with your actual API key from imgbb.com
-    api_key = "YOUR_IMGBB_API_KEY" 
+    api_key = "ec667a2de584a4696d4e2a1f1a85ce2f" 
     url = "https://api.imgbb.com/1/upload"
     
     try:
